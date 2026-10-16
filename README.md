@@ -18,9 +18,9 @@
 <br>
 
 > [!WARNING]
-> **⚠️ AVISO DE STATUS BETA E USO DE IA**
-> Este projeto utiliza **Inteligência Artificial** em seu desenvolvimento e está em fase **BETA DE TESTES**. O software pode apresentar instabilidades, gerar comportamentos inesperados ou causar problemas no seu projeto do Fusion 360.
-> **USE POR SUA CONTA E RISCO.** Sempre faça backup dos seus arquivos antes de aplicar o script e valide a performance estrutural com simulações.
+> **⚠️ BETA STATUS AND AI USAGE WARNING**
+> This project utilizes **Artificial Intelligence** in its development and is currently in **BETA TESTING** phase. The software may present instabilities, generate unexpected behaviors, or cause issues in your Fusion 360 project.
+> **USE AT YOUR OWN RISK.** Always back up your files before applying the script and validate structural performance with simulations.
 
 ---
 
@@ -144,6 +144,9 @@ Al reportar un problema, incluya la versión de Fusion, una captura de pantalla,
 ---
 
 <p align="center">
-  <i>Construído pela equipe <b>Flashbio #31888</b></i><br>
-  <img src="LOGO FLASHBIO (2).png" width="80" alt="FlashBio Logo Minimal">
+  <i>Construído pela equipe <b>Flashbio #31888</b></i><br><br>
+  <img src="LOGO FLASHBIO (2).png" width="80" alt="FlashBio Logo Minimal"><br><br>
+  <a href="https://www.instagram.com/flashbioftc/" target="_blank"><img src="https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram"></a>
+  <a href="https://www.youtube.com/@FlashBio31888" target="_blank"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+  <a href="https://www.facebook.com/SesiRobobio/?locale=pt_BR" target="_blank"><img src="https://img.shields.io/badge/Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white" alt="Facebook"></a>
 </p>

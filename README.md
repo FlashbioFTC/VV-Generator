@@ -58,7 +58,7 @@ VV Generator is a Python add-in for Autodesk Fusion 360 that generates lightweig
 4. Choose the **Shape** and parameters.
 5. Click **OK**.
 
-### 12. Credits and Support
+### 4. Credits and Support
 **Developed by Team Flashbio #31888**
 - **Cauã Vioto** — Lead Creator / Principal Developer
 - **Gabriel Chidi** — Support / Contributor
@@ -95,7 +95,7 @@ O VV Generator é um add-in em Python para o Autodesk Fusion 360 que gera padrõ
 4. Escolha o **Formato** (Shape) e ajuste os parâmetros.
 5. Clique em **OK**.
 
-### 12. Créditos e Suporte
+### 4. Créditos e Suporte
 **Desenvolvido pela Equipe Flashbio #31888**
 - **Cauã Vioto** — Criador Principal / Desenvolvedor Líder
 - **Gabriel Chidi** — Apoio / Contribuidor
@@ -132,7 +132,7 @@ VV Generator es un complemento en Python para Autodesk Fusion 360 que genera pat
 4. Elija el formato y ajuste los parámetros.
 5. Haga clic en **OK**.
 
-### 12. Créditos y Soporte
+### 4. Créditos y Soporte
 **Desarrollado por el Equipo Flashbio #31888**
 - **Cauã Vioto** — Creador Principal / Desarrollador Líder
 - **Gabriel Chidi** — Apoyo / Colaborador

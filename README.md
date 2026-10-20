@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="LOGO FLASHBIO (2).png" width="250" alt="FlashBio Logo">
+  <img src="assets/images/LOGO FLASHBIO.png" width="250" alt="FlashBio Logo">
 </p>
 
 <h1 align="center">VV Generator</h1>

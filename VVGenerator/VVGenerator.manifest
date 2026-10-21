@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "addin",
+  "id": "7c2f1d3e-5a4b-4e8f-9b61-3d0a2c8e41f7",
+  "author": "Flashbio #31888",
+  "description": {
+    "": "VV Generator - adaptive lightweight patterns (Voronoi with Lloyd relaxation, honeycomb, triangles, circles), user seed points, preview and a measured analysis report. Created and maintained by Flashbio #31888"
+  },
+  "version": "1.7.0",
+  "runOnStartup": false,
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}

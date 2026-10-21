@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?ifndef Version?>
+<?define Version="1.7.0"?>
+<?endif?>
+<?ifndef SourceDir?>
+<?define SourceDir="..\VVGenerator"?>
+<?endif?>
+<!-- WiX Toolset v4. Per-user package: installs into %APPDATA%, no admin rights needed. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="VV Generator for Fusion 360"
+           Manufacturer="Flashbio #31888"
+           Version="$(Version)"
+           UpgradeCode="b6d3c0a4-2f8e-4c5a-9e41-7a1d5f0c8b32"
+           Scope="perUser"
+           Language="1033">
+
+    <SummaryInformation Description="VV Generator - adaptive lightweight patterns add-in for Autodesk Fusion 360" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of VV Generator is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="AppDataFolder">
+      <Directory Id="AutodeskDir" Name="Autodesk">
+        <Directory Id="Fusion360Dir" Name="Autodesk Fusion 360">
+          <Directory Id="ApiDir" Name="API">
+            <Directory Id="AddInsDir" Name="AddIns">
+              <Directory Id="INSTALLFOLDER" Name="VVGenerator">
+                <Directory Id="ResDir" Name="resources" />
+                <Directory Id="PycDir" Name="__pycache__" />
+              </Directory>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Per-user components use an HKCU registry value as KeyPath (Windows Installer rule). -->
+    <Component Id="CmpMain" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Flashbio\VVGenerator" Name="Main" Type="integer" Value="1" KeyPath="yes" />
+      <File Id="FilePy" Source="$(SourceDir)\VVGenerator.py" />
+      <File Id="FileEngine" Source="$(SourceDir)\vv_engine.py" />
+      <File Id="FileManifest" Source="$(SourceDir)\VVGenerator.manifest" />
+      <RemoveFolder Id="RmInstallDir" On="uninstall" />
+    </Component>
+
+    <Component Id="CmpRes" Directory="ResDir">
+      <RegistryValue Root="HKCU" Key="Software\Flashbio\VVGenerator" Name="Resources" Type="integer" Value="1" KeyPath="yes" />
+      <File Id="FileLogo" Source="$(SourceDir)\resources\logo.png" />
+      <File Id="File16" Source="$(SourceDir)\resources\16x16.png" />
+      <File Id="File32" Source="$(SourceDir)\resources\32x32.png" />
+      <File Id="File64" Source="$(SourceDir)\resources\64x64.png" />
+      <File Id="File16d" Source="$(SourceDir)\resources\16x16-dark.png" />
+      <File Id="File32d" Source="$(SourceDir)\resources\32x32-dark.png" />
+      <File Id="File64d" Source="$(SourceDir)\resources\64x64-dark.png" />
+      <RemoveFolder Id="RmResDir" On="uninstall" />
+    </Component>
+
+    <!-- Fusion's Python creates __pycache__ at run time; clean it up on uninstall. -->
+    <Component Id="CmpPyc" Directory="PycDir">
+      <RegistryValue Root="HKCU" Key="Software\Flashbio\VVGenerator" Name="Cache" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFile Id="RmPycFiles" Name="*.*" On="uninstall" />
+      <RemoveFolder Id="RmPycDir" On="uninstall" />
+    </Component>
+
+    <Feature Id="Main" Title="VV Generator" Level="1">
+      <ComponentRef Id="CmpMain" />
+      <ComponentRef Id="CmpRes" />
+      <ComponentRef Id="CmpPyc" />
+    </Feature>
+  </Package>
+</Wix>

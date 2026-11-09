@@ -81,6 +81,8 @@ class FakeSketch(object):
 
     @property
     def profiles(self):
+        if self.world.profiles_error:
+            raise RuntimeError(self.world.profiles_error)
         return [object() for _ in range(self.shapes)]
 
     def sketchToModelSpace(self, p):
@@ -128,6 +130,10 @@ class World(object):
         self.timeline_count = 3
         self.group_names = []
         self.sketches_added = 0
+        self.stale = False                  # original face consumed by the cut
+        self.stale_after_cut = False
+        self.volume_fails_after_cut = False
+        self.profiles_error = None
 
 
 def make_world(extra_faces=False):
@@ -141,7 +147,11 @@ def make_world(extra_faces=False):
 
         @property
         def volume(s):
+            if w.stale and w.volume_fails_after_cut:
+                raise RuntimeError('2 : InternalValidationError : asmFace')
             return w.volume
+
+        boundingBox = types.SimpleNamespace(minPoint=P3(0, 0, 0), maxPoint=P3(22, 16, 3))
 
         physicalProperties = types.SimpleNamespace(mass=0.5)
 
@@ -150,19 +160,23 @@ def make_world(extra_faces=False):
     body = Body()
 
     def cut_add(inp):
-        w.cut_calls.append((inp.direction, len(inp.profiles)))
+        w.cut_calls.append((inp.direction, len(inp.profiles), inp.mode))
         if w.cut_mode == 'fail':
             raise RuntimeError('simulated cut failure')
+        if w.cut_mode == 'noall' and inp.mode == 'all':
+            raise RuntimeError('2 : InternalValidationError : asmFace')
         if w.cut_mode == 'batches' and len(inp.profiles) > 20:
             raise RuntimeError('too many profiles')
-        if inp.direction == 1 or w.cut_mode in ('ok', 'batches'):
+        if inp.direction == 1 or w.cut_mode in ('ok', 'batches', 'noall'):
             w.volume -= 1.0 * len(inp.profiles) * 0.05
+            if w.stale_after_cut:
+                w.stale = True
         return types.SimpleNamespace(deleteMe=lambda: None)
 
     def create_input(profiles, op):
-        inp = types.SimpleNamespace(profiles=list(profiles), direction=None, participantBodies=None)
-        inp.setAllExtent = lambda d: setattr(inp, 'direction', d)
-        inp.setOneSideExtent = lambda dd, d: setattr(inp, 'direction', d)
+        inp = types.SimpleNamespace(profiles=list(profiles), direction=None, participantBodies=None, mode=None)
+        inp.setAllExtent = lambda d: (setattr(inp, 'direction', d), setattr(inp, 'mode', 'all'))
+        inp.setOneSideExtent = lambda dd, d: (setattr(inp, 'direction', d), setattr(inp, 'mode', 'dist'))
         return inp
 
     def sk_add(face):
@@ -195,9 +209,27 @@ def make_world(extra_faces=False):
         meshManager=None)
     body.faces = [hole_face, fillet]
 
-    face = types.SimpleNamespace(body=body, loops=loops, area=52.3, pointOnFace=P3(1, 1, 0), entityToken='face-1',
-                                 nativeObject=None,
-                                 evaluator=types.SimpleNamespace(getNormalAtPoint=lambda p: (True, V3(0, 0, 1))))
+    the_body = body
+
+    class Face(object):
+        pointOnFace = P3(1, 1, 0)
+        entityToken = 'face-1'
+        nativeObject = None
+        evaluator = types.SimpleNamespace(getNormalAtPoint=lambda p: (True, V3(0, 0, 1)))
+        body = the_body
+
+        @property
+        def area(s):
+            if w.stale:
+                raise RuntimeError('2 : InternalValidationError : asmFace')
+            return 52.3
+
+        @property
+        def loops(s):
+            if w.stale:
+                raise RuntimeError('2 : InternalValidationError : asmFace')
+            return loops
+    face = Face()
     return w, face, body, comp, hole_face
 
 
@@ -427,7 +459,7 @@ class GlueTests(unittest.TestCase):
             msg = self.execute()
             self.assertIn('cm3', msg, key + ': ' + msg[:200])
             self.assertIn('Volume', msg)
-            self.assertFalse(self.w.sketch.isLightBulbOn)
+            self.assertTrue(self.w.sketch.isLightBulbOn, key + ': sketch must stay visible')
             self.assertGreater(self.w.sketch.shapes, 20, key)
             self.assertTrue(self.w.group_names, 'timeline group created')
 
@@ -462,7 +494,7 @@ class GlueTests(unittest.TestCase):
         self.open_dialog(0)
         msg = self.execute()
         self.assertIn('cm3', msg)
-        self.assertTrue(any(n <= 20 for _, n in self.w.cut_calls))
+        self.assertTrue(any(c[1] <= 20 for c in self.w.cut_calls))
 
     def test_cut_failure_reports_error_and_keeps_sketch(self):
         self.start()
@@ -576,6 +608,66 @@ class GlueTests(unittest.TestCase):
         self.cmd.executePreview.handlers[0].notify(args)
         self.assertEqual(self.w.sketches_added, 1)
 
+    # ------------------------------------------------------------------ v1.7.1 (asmFace error on the real part)
+    def test_consumed_face_after_cut_does_not_break_report_and_sketch_stays_visible(self):
+        """Regression: after the cut, reading the original face raised 'InternalValidationError : asmFace'."""
+        self.start()
+        self.w.stale_after_cut = True
+        self.w.volume_fails_after_cut = True
+        self.open_dialog(0)
+        msg = self.execute()
+        self.assertNotIn('InternalValidationError', msg)
+        self.assertIn('Face:', msg)                         # face data was captured before the cut
+        self.assertIn('Cut', msg + 'Cut')                   # (report built, no crash)
+        self.assertTrue(self.w.sketch.isLightBulbOn, 'the sketch must stay visible')
+        self.assertFalse(self.w.sketch.deleted)
+
+    def test_sketch_is_visible_after_a_normal_run(self):
+        self.start()
+        self.open_dialog(0)
+        self.execute()
+        self.assertTrue(self.w.sketch.isLightBulbOn)
+
+    def test_unexpected_fusion_error_is_friendly_names_the_step_and_keeps_the_sketch(self):
+        self.start()
+        self.w.profiles_error = '2 : InternalValidationError : asmFace'
+        self.open_dialog(0)
+        msg = self.execute()
+        self.assertIn('"draw"', msg)
+        self.assertIn('asmFace', msg)
+        self.assertIn('kept visible', msg)
+        self.assertTrue(self.w.sketch.isLightBulbOn)
+        self.assertFalse(self.w.sketch.deleted)
+
+    def test_sketch_only_option_makes_no_cut(self):
+        self.start()
+        self.open_dialog(0)
+        self.inputs.itemById('sketch_only').value = True
+        msg = self.execute()
+        self.assertEqual(self.w.cut_calls, [])
+        self.assertIn('Sketch only', msg)
+        self.assertNotIn('Volume:', msg)
+        self.assertTrue(self.w.sketch.isLightBulbOn)
+        self.assertGreater(self.w.sketch.shapes, 20)
+
+    def test_through_all_falls_back_to_finite_depth(self):
+        self.start()
+        self.w.cut_mode = 'noall'               # the 'all' extent makes the kernel fail
+        self.open_dialog(0)
+        msg = self.execute()
+        self.assertIn('Volume:', msg)
+        modes = [c[2] for c in self.w.cut_calls]
+        self.assertIn('all', modes)
+        self.assertIn('dist', modes)
+        self.assertEqual(modes[-1], 'dist')
+
+    def test_cut_failure_message_keeps_sketch_visible(self):
+        self.start()
+        self.w.cut_mode = 'fail'
+        self.open_dialog(0)
+        msg = self.execute()
+        self.assertIn('cut failed', msg)
+        self.assertTrue(self.w.sketch.isLightBulbOn)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

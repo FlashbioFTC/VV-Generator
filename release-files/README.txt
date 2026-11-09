@@ -1,4 +1,4 @@
-VV Generator for Autodesk Fusion 360  -  v1.7.0
+VV Generator for Autodesk Fusion 360  -  v1.7.1
 Created and maintained by Flashbio #31888
 
 EN  Adaptive lightweight patterns (Voronoi, rounded Voronoi, honeycomb hexagons, triangular mesh, circles) cut into a planar face,

@@ -1,4 +1,31 @@
-## VV Generator v1.7.0
+## VV Generator v1.7.1
+
+**EN** — Fix for the error `2 : InternalValidationError : asmFace` shown after generating a pattern.
+- **Cause:** the report read the original face and the body volume *after* the cut; the cut consumes that face, so Fusion's kernel raised the error. The cut itself had already worked, but the sketch was hidden at that point.
+- **Fix:** everything the report needs is read **before** the cut; the report can no longer raise; the **sketch is always left visible**.
+- Any other Fusion error is now shown with a clear message that names the step and tells you the sketch was kept visible, instead of a raw kernel message.
+- New option **"Sketch only (do not cut)"**: creates the sketch and leaves the cut to you.
+- Stronger cut: if "through all" fails it retries with a finite depth equal to the body's extent; then batches of 20, 5 and single profiles.
+- Tests: 22 glue tests (new regression tests reproduce the error; the old code shows exactly the same dialog) + 20 engine tests.
+
+**PT-BR** — Correção do erro `2 : InternalValidationError : asmFace` exibido depois de gerar um padrão.
+- **Causa:** o relatório lia a face original e o volume do corpo *depois* do corte; o corte consome essa face e o kernel do Fusion levantava o erro. O corte já tinha funcionado, mas o esboço estava oculto nesse momento.
+- **Correção:** tudo que o relatório precisa é lido **antes** do corte; o relatório não pode mais falhar; o **esboço sempre fica visível**.
+- Qualquer outro erro do Fusion agora aparece com mensagem clara que diz a etapa e informa que o esboço foi mantido visível, em vez da mensagem crua do kernel.
+- Nova opção **"Somente esboço (não cortar)"**: cria o esboço e deixa o corte por sua conta.
+- Corte mais forte: se "atravessar tudo" falhar, tenta de novo com profundidade finita igual à extensão do corpo; depois em lotes de 20, de 5 e perfis individuais.
+- Testes: 22 da camada do Fusion (novos testes de regressão reproduzem o erro; o código antigo mostra exatamente a mesma caixa) + 20 do motor.
+
+**ES** — Corrección del error `2 : InternalValidationError : asmFace` mostrado tras generar un patrón.
+- **Causa:** el informe leía la cara original y el volumen del cuerpo *después* del corte; el corte consume esa cara y el kernel de Fusion lanzaba el error. El corte ya había funcionado, pero el boceto estaba oculto en ese momento.
+- **Corrección:** todo lo que el informe necesita se lee **antes** del corte; el informe ya no puede fallar; el **boceto siempre queda visible**.
+- Cualquier otro error de Fusion se muestra ahora con un mensaje claro que indica el paso y que el boceto se mantuvo visible, en lugar del mensaje crudo del kernel.
+- Nueva opción **"Solo boceto (no cortar)"**: crea el boceto y deja el corte por su cuenta.
+- Corte más robusto: si "atravesar todo" falla, reintenta con una profundidad finita igual a la extensión del cuerpo; luego por lotes de 20, de 5 y perfiles individuales.
+- Pruebas: 22 de la capa de Fusion (nuevas pruebas de regresión reproducen el error; el código antiguo muestra exactamente el mismo cuadro) + 20 del motor.
+
+---
+
 
 **EN** — Performance and quality release, informed by the existing Fusion 360 Voronoi tools.
 - **2.3x to 3.4x faster** generation (Bridson Poisson-disk seeding instead of random darts, cached spatial queries, inlined hot loops) with identical wall / coverage guarantees. Typical faces: 0.4 to 1.7 s.

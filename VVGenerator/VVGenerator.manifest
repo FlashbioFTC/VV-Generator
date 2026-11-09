@@ -6,7 +6,7 @@
   "description": {
     "": "VV Generator - adaptive lightweight patterns (Voronoi with Lloyd relaxation, honeycomb, triangles, circles), user seed points, preview and a measured analysis report. Created and maintained by Flashbio #31888"
   },
-  "version": "1.7.0",
+  "version": "1.7.1",
   "runOnStartup": false,
   "supportedOS": "windows|mac",
   "editEnabled": true

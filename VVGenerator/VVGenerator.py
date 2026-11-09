@@ -26,7 +26,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 import vv_engine  # noqa: E402
 
-VERSION = '1.7.0'
+VERSION = '1.7.1'
 CMD_ID = 'vvGeneratorCmd'
 CMD_NAME = 'VV Generator'
 PANEL_ID = 'SolidCreatePanel'
@@ -214,6 +214,19 @@ _T = {
     'w_sites_gaps': ('With only your points, regions far from them stay solid (a cell is always convex). Add more points or turn off "Use only my points".',
                      'Só com os seus pontos, as regiões distantes deles ficam sólidas (uma célula é sempre convexa). Adicione mais pontos ou desligue "Usar somente meus pontos".',
                      'Solo con sus puntos, las regiones lejanas quedan sólidas (una celda siempre es convexa). Añada más puntos o desactive "Usar solo mis puntos".'),
+    'sketch_only': ('Sketch only (do not cut)', 'Somente esboço (não cortar)', 'Solo boceto (no cortar)'),
+    'sketch_only_tip': ('Creates the sketch and leaves the cut to you (Extrude > Cut).',
+                        'Cria o esboço e deixa o corte por sua conta (Extrusão > Corte).',
+                        'Crea el boceto y deja el corte por su cuenta (Extrusión > Corte).'),
+    'r_sketch_only': ('Sketch only: no cut was made. Use Extrude > Cut on the sketch profiles.',
+                      'Somente esboço: nenhum corte foi feito. Use Extrusão > Corte nos perfis do esboço.',
+                      'Solo boceto: no se hizo ningún corte. Use Extrusión > Corte en los perfiles del boceto.'),
+    'e_fusion': ('Fusion reported an error at the step "{stage}":\n{err}\n\nThe sketch was kept visible in the model. Check the timeline to see whether the cut was applied.',
+                 'O Fusion informou um erro na etapa "{stage}":\n{err}\n\nO esboço foi mantido visível no modelo. Confira a linha do tempo para ver se o corte foi aplicado.',
+                 'Fusion informó un error en el paso "{stage}":\n{err}\n\nEl boceto se mantuvo visible en el modelo. Revise la línea de tiempo para ver si se aplicó el corte.'),
+    'r_fallback': ('Pattern created: {n} shapes, {cut} profile(s) cut. The detailed report could not be built ({err}).',
+                   'Padrão criado: {n} formas, {cut} perfil(is) cortado(s). O relatório detalhado não pôde ser montado ({err}).',
+                   'Patrón creado: {n} formas, {cut} perfil(es) cortado(s). No se pudo construir el informe detallado ({err}).'),
     'r_time': ('Generated in {sec:.1f} s', 'Gerado em {sec:.1f} s', 'Generado en {sec:.1f} s'),
 }
 _LANG_IDX = {'en': 0, 'pt': 1, 'es': 2}
@@ -387,9 +400,34 @@ def draw_item(sk, item):
         return False
 
 
+class VVError(Exception):
+    """A user-facing problem (the message is already translated)."""
+
+
+def _safe(fn, default=None):
+    try:
+        return fn()
+    except Exception:
+        return default
+
+
+def _body_depth(body, nrm):
+    """Extent of the body along the cut direction (finite fallback for 'through all')."""
+    try:
+        bb = body.boundingBox
+        size = (bb.maxPoint.x - bb.minPoint.x, bb.maxPoint.y - bb.minPoint.y, bb.maxPoint.z - bb.minPoint.z)
+        return abs(nrm[0]) * size[0] + abs(nrm[1]) * size[1] + abs(nrm[2]) * size[2] + 0.2
+    except Exception:
+        return 100.0
+
+
 def cut_profiles(comp, body, face, nrm, profiles, through, depth):
-    """Extrude-cut the profiles. Tries both directions (verifying the volume really dropped) and,
-    if cutting everything at once fails, cuts in batches of 20. Returns (count_cut, last_error)."""
+    """Extrude-cut the profiles with a chain of fallbacks. Returns (count_cut, last_error).
+
+    Order: whole set at once -> batches of 20 -> 5 -> single profiles (only if few remain).
+    Each attempt tries both directions and, for 'through all', first the 'all' extent and then a finite
+    depth equal to the body's extent (some kernel errors only happen with the 'all' extent).
+    Every attempt checks that the volume really dropped and removes a feature that did nothing."""
     ext = comp.features.extrudeFeatures
     D = adsk.fusion.ExtentDirections
     first, second = D.NegativeExtentDirection, D.PositiveExtentDirection
@@ -399,49 +437,59 @@ def cut_profiles(comp, body, face, nrm, profiles, through, depth):
             first, second = second, first
     except Exception:
         pass
-    state = {'order': [first, second], 'err': ''}
+    modes = ['all', 'dist'] if through else ['dist']
+    dist_value = _body_depth(body, nrm) if through else depth
+    state = {'order': [first, second], 'modes': modes, 'err': ''}
 
-    def make_cut(plist, direction):
+    def make_cut(plist, direction, mode):
         col = adsk.core.ObjectCollection.create()
         for p in plist:
             col.add(p)
         inp = ext.createInput(col, adsk.fusion.FeatureOperations.CutFeatureOperation)
-        if through:
+        if mode == 'all':
             inp.setAllExtent(direction)
         else:
-            dd = adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(depth))
+            dd = adsk.fusion.DistanceExtentDefinition.create(adsk.core.ValueInput.createByReal(dist_value))
             inp.setOneSideExtent(dd, direction)
         inp.participantBodies = [body]
         return ext.add(inp)
 
     def attempt(plist):
-        vol0 = body.volume
-        for direction in list(state['order']):
-            try:
-                feat = make_cut(plist, direction)
-            except Exception:
-                state['err'] = traceback.format_exc()
-                continue
-            try:
-                vol1 = body.volume
-            except Exception:
-                vol1 = None
-            if vol1 is None or vol1 < vol0 - 1e-9:
-                state['order'] = [direction] + [d for d in state['order'] if d != direction]
-                return True
-            try:
-                feat.deleteMe()
-            except Exception:
-                pass
+        vol0 = _safe(lambda: body.volume)
+        for mode in list(state['modes']):
+            for direction in list(state['order']):
+                try:
+                    feat = make_cut(plist, direction, mode)
+                except Exception:
+                    state['err'] = traceback.format_exc()
+                    continue
+                vol1 = _safe(lambda: body.volume)
+                if vol0 is None or vol1 is None or vol1 < vol0 - 1e-9:
+                    state['order'] = [direction] + [d for d in state['order'] if d != direction]
+                    state['modes'] = [mode] + [m for m in state['modes'] if m != mode]
+                    return True
+                try:
+                    feat.deleteMe()
+                except Exception:
+                    pass
         return False
 
-    if attempt(profiles):
-        return len(profiles), state['err']
     done = 0
-    for k in range(0, len(profiles), 20):
-        chunk = profiles[k:k + 20]
-        if attempt(chunk):
-            done += len(chunk)
+    remaining = list(profiles)
+    for size in (len(profiles), 20, 5, 1):
+        if not remaining:
+            break
+        if size == 1 and len(remaining) > 60:
+            break
+        failed = []
+        step = max(1, size)
+        for k in range(0, len(remaining), step):
+            chunk = remaining[k:k + step]
+            if attempt(chunk):
+                done += len(chunk)
+            else:
+                failed.extend(chunk)
+        remaining = failed
     return done, state['err']
 
 
@@ -464,6 +512,25 @@ def _mass_g(body):
 # Main operation
 # ----------------------------------------------------------------------------
 def build(vals, preview=False):
+    """Create the sketch (always left visible) and, unless 'sketch only', cut it.
+    Fusion errors are turned into a friendly message that names the step; the sketch stays visible."""
+    ctx = {'sk': None, 'stage': 'init'}
+    try:
+        return _build_impl(vals, preview, ctx)
+    except (VVError, vv_engine.EngineError):
+        raise
+    except Exception as e:
+        sk = ctx['sk']
+        if sk is not None:
+            try:
+                sk.isLightBulbOn = True
+            except Exception:
+                pass
+        _log(traceback.format_exc())
+        raise VVError(tr('e_fusion', stage=ctx['stage'], err=str(e)))
+
+
+def _build_impl(vals, preview, ctx):
     face_in = vals['face']
     face = face_in.nativeObject if getattr(face_in, 'nativeObject', None) else face_in
     from_occurrence = face is not face_in
@@ -479,19 +546,30 @@ def build(vals, preview=False):
         tl = None
     tl_start = tl.count if tl is not None else 0
 
-    vol0 = body.volume
-    mass0 = _mass_g(body)
+    # Everything about the face / body that the report needs is read NOW: the cut consumes the original
+    # face, and reading it afterwards raises "InternalValidationError : asmFace".
+    ctx['stage'] = 'read'
+    info = {
+        'body': _safe(lambda: body.name, '?'), 'comp': _safe(lambda: comp.name, '?'),
+        'face_area': _safe(lambda: face.area, 0.0),
+        'holes_loops': _safe(lambda: sum(1 for l in face.loops if not l.isOuter), 0),
+        'vol0': _safe(lambda: body.volume), 'mass0': _mass_g(body),
+        'from_occurrence': from_occurrence,
+    }
 
+    ctx['stage'] = 'sketch'
     sk = comp.sketches.add(face)
+    ctx['sk'] = sk
     sk.name = 'VV Generator'
     frame, to2d = _frame_and_converter(sk)
     segs = face_segments(face, to2d)
     if not segs:
         sk.deleteMe()
+        ctx['sk'] = None
         raise vv_engine.EngineError('no_outline')
 
     # ---- reinforcement ----
-    warn = []
+    ctx['stage'] = 'reinforcement'
     n_holes = n_fillets = n_foreign = 0
     rfaces = []
     comp_token = _token(comp)
@@ -532,6 +610,7 @@ def build(vals, preview=False):
         else:
             sites.append(pt)
 
+    ctx['stage'] = 'engine'
     P = vv_engine.Params(shape=vals['shape'], wall=vals['wall'], hmin=vals['hmin'], hmax=vals['hmax'],
                          infl=vals['infl'], rim=vals['rim'], keep=vals['keep'], max_cells=vals['maxc'],
                          seed=vals['seed'], corner_r=vals['corner'], tile=vals['tile'],
@@ -544,9 +623,11 @@ def build(vals, preview=False):
             sk.deleteMe()
         except Exception:
             pass
+        ctx['sk'] = None
         raise
 
     # ---- draw ----
+    ctx['stage'] = 'draw'
     failed = 0
     sk.isComputeDeferred = True
     try:
@@ -555,26 +636,34 @@ def build(vals, preview=False):
                 failed += 1
     finally:
         sk.isComputeDeferred = False
+    sk.isLightBulbOn = True               # the sketch is always left visible for the user
     profiles = [p for p in sk.profiles]
     if not profiles:
-        sk.isLightBulbOn = True
-        raise RuntimeError(tr('e_no_profiles', cells=len(items)))
+        raise VVError(tr('e_no_profiles', cells=len(items)))
+
+    info.update({'rpts': len(rpts), 'n_holes': n_holes, 'n_sel': n_sel, 'n_fillets': n_fillets,
+                 'n_foreign': n_foreign, 'n_bad_sites': n_bad_sites, 'failed': failed, 'profiles': len(profiles),
+                 'cut': 0, 'items': len(items)})
 
     # ---- cut ----
-    n = (frame['ex'][1] * frame['ey'][2] - frame['ex'][2] * frame['ey'][1],
-         frame['ex'][2] * frame['ey'][0] - frame['ex'][0] * frame['ey'][2],
-         frame['ex'][0] * frame['ey'][1] - frame['ex'][1] * frame['ey'][0])
-    nl = math.sqrt(sum(c * c for c in n)) or 1.0
-    nrm = (n[0] / nl, n[1] / nl, n[2] / nl)
-    cut, err = cut_profiles(comp, body, face, nrm, profiles, vals['through'], vals['depth'])
-    if cut == 0:
-        sk.isLightBulbOn = True
-        raise RuntimeError(tr('e_cut_failed', cells=len(items), profiles=len(profiles),
-                              err=err or tr('no_volume')))
-    sk.isLightBulbOn = False
+    if not vals['sketch_only']:
+        ctx['stage'] = 'cut'
+        n = (frame['ex'][1] * frame['ey'][2] - frame['ex'][2] * frame['ey'][1],
+             frame['ex'][2] * frame['ey'][0] - frame['ex'][0] * frame['ey'][2],
+             frame['ex'][0] * frame['ey'][1] - frame['ex'][1] * frame['ey'][0])
+        nl = math.sqrt(sum(c * c for c in n)) or 1.0
+        nrm = (n[0] / nl, n[1] / nl, n[2] / nl)
+        cut, err = cut_profiles(comp, body, face, nrm, profiles, vals['through'], vals['depth'])
+        if cut == 0:
+            raise VVError(tr('e_cut_failed', cells=len(items), profiles=len(profiles),
+                             err=err or tr('no_volume')))
+        info['cut'] = cut
+        info['vol1'] = _safe(lambda: body.volume)
+        info['mass1'] = _mass_g(body)
     if preview:
         return None
 
+    ctx['stage'] = 'group'
     if tl is not None:
         try:
             if tl.count - 1 >= tl_start:
@@ -582,56 +671,69 @@ def build(vals, preview=False):
         except Exception:
             pass
 
-    # ---- report ----
-    vol1 = body.volume
-    mass1 = _mass_g(body)
-    face_area = face.area
-    holes_loops = sum(1 for l in face.loops if not l.isOuter)
+    ctx['stage'] = 'report'
+    try:
+        text = _report(vals, st, info)
+    except Exception as e:
+        text = tr('r_fallback', n=len(items), cut=info['cut'], err=str(e))
+    _log(text)
+    return text
+
+
+def _report(vals, st, info):
+    """Build the text report from values captured BEFORE the cut (never touches the consumed face)."""
+    face_area = info['face_area']
     bx0, by0, bx1, by1 = st['bbox']
     lines = [tr('r_title') + '  v' + VERSION, '', tr('r_part'),
-             tr('r_body', body=body.name, comp=comp.name),
+             tr('r_body', body=info['body'], comp=info['comp']),
              tr('r_face', area=face_area, w=(bx1 - bx0) * 10, h=(by1 - by0) * 10, length=st['outline_length'] * 10,
-                segs=st['outline_segments'], holes=holes_loops)]
-    if rpts:
-        lines.append(tr('r_reinf', holes=n_holes, sel=n_sel, zones=st['zones']))
+                segs=st['outline_segments'], holes=info['holes_loops'])]
+    if info['rpts']:
+        lines.append(tr('r_reinf', holes=info['n_holes'], sel=info['n_sel'], zones=st['zones']))
     else:
         lines.append(tr('r_reinf_none'))
-    if n_fillets or n_foreign:
-        lines.append(tr('r_ignored', n=n_fillets, m=n_foreign))
+    if info['n_fillets'] or info['n_foreign']:
+        lines.append(tr('r_ignored', n=info['n_fillets'], m=info['n_foreign']))
     shape_name = tr('shape_%d' % SHAPE_KEYS.index(vals['shape']))
     lines += ['', tr('r_pattern'),
               tr('r_items', shape=shape_name, n=st['items'], smin=st['size_min'] * 10, smean=st['size_mean'] * 10,
                  smax=st['size_max'] * 10)]
-    if rpts:
+    if info['rpts']:
         lines.append(tr('r_zones', a=st['reinforced_items'], b=st['light_items']))
     if vals['shape'] in ('voronoi', 'rounded', 'circle'):
         lines.append(tr('r_uniform', cv=100.0 * st['uniformity_cv'], n=st['relax_iterations']))
     if vals['sites']:
-        lines.append(tr('r_sites', used=st['sites_used'], ign=st['sites_ignored'] + n_bad_sites))
+        lines.append(tr('r_sites', used=st['sites_used'], ign=st['sites_ignored'] + info['n_bad_sites']))
     mw = '%.2f' % (st['min_gap'] * 10) if st['min_gap'] is not None else '-'
     lines.append(tr('r_walls', mw=mw, tw=vals['wall'] * 10, rim=vals['rim'] * 10))
     lines.append(tr('r_open', open=st['open_area'], pf=100.0 * st['open_area'] / face_area if face_area > 0 else 0.0,
                     pp=100.0 * st['open_ratio_free']))
     lines.append(tr('r_cov', u=st['uncovered_pct'], g=st['gap_max'] * 10))
-    dv = vol0 - vol1
-    lines += ['', tr('r_material'),
-              tr('r_vol', v0=vol0, v1=vol1, dv=dv, pc=100.0 * dv / vol0 if vol0 > 0 else 0.0)]
-    if mass0 and mass1:
-        lines.append(tr('r_mass', m0=mass0, m1=mass1, dm=mass0 - mass1))
-    lines += ['', tr('r_op'), tr('r_cut', profiles=len(profiles), cut=cut), tr('r_time', sec=st['seconds'])]
+    if vals['sketch_only']:
+        lines += ['', tr('r_op'), tr('r_sketch_only'), tr('r_time', sec=st['seconds'])]
+    else:
+        vol0, vol1 = info.get('vol0'), info.get('vol1')
+        if vol0 is not None and vol1 is not None:
+            dv = vol0 - vol1
+            lines += ['', tr('r_material'),
+                      tr('r_vol', v0=vol0, v1=vol1, dv=dv, pc=100.0 * dv / vol0 if vol0 > 0 else 0.0)]
+            if info.get('mass0') and info.get('mass1'):
+                lines.append(tr('r_mass', m0=info['mass0'], m1=info['mass1'], dm=info['mass0'] - info['mass1']))
+        lines += ['', tr('r_op'), tr('r_cut', profiles=info['profiles'], cut=info['cut']), tr('r_time', sec=st['seconds'])]
+    warn = []
     if st['uncovered_pct'] > 2.0:
         warn.append(tr('w_sites_gaps') if vals['sites_only'] and vals['sites'] else tr('w_gaps'))
     if st['hit_cap']:
         warn.append(tr('w_cap'))
     if st['dropped']:
         warn.append(tr('w_dropped', n=st['dropped']))
-    if failed:
-        warn.append(tr('w_draw', n=failed))
-    if cut < len(profiles):
-        warn.append(tr('w_uncut', n=len(profiles) - cut))
+    if info['failed']:
+        warn.append(tr('w_draw', n=info['failed']))
+    if not vals['sketch_only'] and info['cut'] < info['profiles']:
+        warn.append(tr('w_uncut', n=info['profiles'] - info['cut']))
     if st['min_gap'] is not None and st['min_gap'] < vals['wall'] - 1e-4 and not vals['shape'] == 'circle':
         warn.append(tr('w_wall'))
-    if from_occurrence:
+    if info['from_occurrence']:
         warn.append(tr('w_native'))
     if warn:
         lines += ['', tr('r_warn')] + ['- ' + w for w in warn]
@@ -658,6 +760,7 @@ def read_values(inputs):
         'extra': [sel.selection(k).entity for k in range(sel.selectionCount)],
         'sites': [sites_in.selection(k).entity for k in range(sites_in.selectionCount)],
         'sites_only': inputs.itemById('sites_only').value,
+        'sketch_only': inputs.itemById('sketch_only').value,
         'relax': inputs.itemById('relax').value,
         'auto': inputs.itemById('auto').value,
         'shape': SHAPE_KEYS[inputs.itemById('shape').selectedItem.index],
@@ -730,10 +833,10 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             _ui.messageBox(report, CMD_NAME)
         except vv_engine.EngineError as e:
             _ui.messageBox(problem_text(e.code, e.info), CMD_NAME)
+        except VVError as e:
+            _ui.messageBox(str(e), CMD_NAME)
         except ValueError:
             _ui.messageBox(tr('e_expr'), CMD_NAME)
-        except RuntimeError as e:
-            _ui.messageBox(str(e), CMD_NAME)
         except Exception:
             tb = traceback.format_exc()
             _log(tb)
@@ -849,6 +952,8 @@ class CreatedHandler(adsk.core.CommandCreatedEventHandler):
             dd.listItems.add(tr('mode_1'), False)
             i.addValueInput('depth', tr('depth'), 'mm', VI('3 mm')).isVisible = False
 
+            so = i.addBoolValueInput('sketch_only', tr('sketch_only'), True, '', False)
+            so.tooltip = tr('sketch_only_tip')
             i.addBoolValueInput('preview', tr('preview'), True, '', False)
             st = i.addTextBoxCommandInput('status', '', '', 3, True)
             st.isVisible = False
